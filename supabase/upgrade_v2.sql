@@ -14,3 +14,13 @@ drop policy if exists "profiles admin update" on public.profiles;create policy "
 -- Zapewnia profil z rolą user nowym kontom
 create or replace function public.new_user_profile() returns trigger language plpgsql security definer set search_path=public as $$begin insert into public.profiles(id,full_name,role) values(new.id,coalesce(new.raw_user_meta_data->>'full_name',split_part(new.email,'@',1)),'user') on conflict do nothing; return new; end$$;
 drop trigger if exists on_auth_user_created on auth.users;create trigger on_auth_user_created after insert on auth.users for each row execute procedure public.new_user_profile();
+
+
+-- Zgloszenia bledow z menu uzytkownika
+create table if not exists public.bug_reports(id uuid primary key default gen_random_uuid(),title text not null,details text not null,status text not null default 'new' check(status in ('new','in_progress','closed')),created_by uuid not null references public.profiles(id),created_at timestamptz not null default now());
+alter table public.bug_reports enable row level security;
+grant select,insert,update,delete on public.bug_reports to authenticated;
+drop policy if exists "bug insert own" on public.bug_reports;create policy "bug insert own" on public.bug_reports for insert to authenticated with check(created_by=auth.uid());
+drop policy if exists "bug read own admin" on public.bug_reports;create policy "bug read own admin" on public.bug_reports for select to authenticated using(created_by=auth.uid() or public.is_admin());
+drop policy if exists "bug admin update" on public.bug_reports;create policy "bug admin update" on public.bug_reports for update to authenticated using(public.is_admin()) with check(public.is_admin());
+drop policy if exists "bug admin delete" on public.bug_reports;create policy "bug admin delete" on public.bug_reports for delete to authenticated using(public.is_admin());
